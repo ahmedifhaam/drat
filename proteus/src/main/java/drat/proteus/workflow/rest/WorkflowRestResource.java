@@ -21,32 +21,32 @@ public class WorkflowRestResource extends AbstractRestResource<GsonWebSerialDese
      * 
      */
     private static final long serialVersionUID = -5885885059043262485L;
-     wm;
+//    WorkflowManagerUtils wm;
     
     
     
     private static final Logger LOG = Logger.getLogger(WorkflowRestResource.class.getName());
     public WorkflowRestResource() {
         super(new GsonWebSerialDeserial());
-        wm =  new WorkflowManagerUtils(PathUtils.replaceEnvVariables(FileConstants.CLIENT_URL));
+//        wm =  new WorkflowManagerUtils(PathUtils.replaceEnvVariables(FileConstants.CLIENT_URL));
     }
     
     @MethodMapping(value = "/dynamic", httpMethod = HttpMethod.POST)
     public String performDynamicWorkFlow(@RequestBody DynamicWorkflowRequestWrapper requestBody ) {
    
-        try {
-            Metadata metaData = new Metadata();
-            LOG.info(requestBody.taskIds.get(0));
-            wm.getClient();
-            wm.getClient().executeDynamicWorkflow(requestBody.taskIds,metaData);
+//        try {
+////            Metadata metaData = new Metadata();
+//            LOG.info(requestBody.taskIds.get(0));
+////            wm.getClient();
+////            wm.getClient().executeDynamicWorkflow(requestBody.taskIds,metaData);
             return "OK";
-        }catch(IOException ex) {
-            LOG.info("Workflow Service Error " + ex.getMessage());
-            return "Connectiing to Server Eroor";
-        }catch(Exception ex) {
-            LOG.info("Workflow Service Error " + ex.getMessage());
-            return "Failed to connect to client Url";
-        }
+//        }catch(IOException ex) {
+//            LOG.info("Workflow Service Error " + ex.getMessage());
+//            return "Connectiing to Server Eroor";
+//        }catch(Exception ex) {
+//            LOG.info("Workflow Service Error " + ex.getMessage());
+//            return "Failed to connect to client Url";
+//        }
     }
     
     

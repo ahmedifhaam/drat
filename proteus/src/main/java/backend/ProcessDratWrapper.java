@@ -17,43 +17,35 @@
 
 package backend;
 
-import org.apache.commons.exec.CommandLine;
-import org.apache.commons.exec.DefaultExecutor;
-import org.apache.commons.exec.PumpStreamHandler;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang.ArrayUtils;
-import org.apache.commons.lang.time.DurationFormatUtils;
-import org.apache.solr.client.solrj.SolrServerException;
-import org.apache.solr.client.solrj.impl.CommonsHttpSolrServer;
-import org.apache.xmlrpc.XmlRpcException;
-import org.apache.oodt.cas.cli.option.store.CmdLineOptionStore;
-import org.apache.oodt.cas.cli.option.store.spring.SpringCmdLineOptionStoreFactory;
-import org.apache.oodt.cas.crawl.CrawlerLauncher;
-import org.apache.oodt.cas.filemgr.structs.Product;
-import org.apache.oodt.cas.filemgr.structs.ProductPage;
-import org.apache.oodt.cas.filemgr.structs.ProductType;
-import org.apache.oodt.cas.filemgr.system.XmlRpcFileManagerClient;
-import org.apache.oodt.cas.filemgr.tools.DeleteProduct;
-import org.apache.oodt.cas.filemgr.tools.SolrIndexer;
-import org.apache.oodt.cas.metadata.util.PathUtils;
-import org.apache.oodt.cas.workflow.structs.WorkflowInstance;
-import org.apache.oodt.cas.workflow.structs.exceptions.RepositoryException;
-import org.apache.oodt.cas.workflow.system.XmlRpcWorkflowManagerClient;
-import org.apache.oodt.pcs.util.FileManagerUtils;
-import org.apache.oodt.pcs.util.WorkflowManagerUtils;
-
-import com.amazonaws.services.simpleworkflow.flow.common.WorkflowExecutionUtils;
-import com.drew.metadata.Metadata;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 
 import drat.proteus.workflow.rest.DynamicWorkflowRequestWrapper;
 import drat.proteus.workflow.rest.WorkflowRestResource;
 
+import org.apache.commons.exec.CommandLine;
+import org.apache.commons.exec.DefaultExecutor;
+import org.apache.commons.exec.PumpStreamHandler;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang.time.DurationFormatUtils;
+import org.apache.oodt.cas.filemgr.structs.Product;
+import org.apache.oodt.cas.filemgr.structs.ProductPage;
+import org.apache.oodt.cas.filemgr.structs.ProductType;
+import org.apache.oodt.cas.filemgr.tools.DeleteProduct;
+import org.apache.oodt.cas.filemgr.tools.SolrIndexer;
+import org.apache.oodt.cas.metadata.util.PathUtils;
+
+import org.apache.oodt.cas.workflow.system.WorkflowManagerClient;
+import org.apache.oodt.cas.workflow.system.rpc.RpcCommunicationFactory;
+import org.apache.oodt.pcs.util.FileManagerUtils;
+import org.apache.solr.client.solrj.SolrServer;
+import org.apache.solr.client.solrj.SolrServerException;
+import org.apache.solr.client.solrj.impl.HttpSolrServer;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -65,8 +57,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
-import java.util.Properties;
+
 import java.util.logging.Logger;
 
 public class ProcessDratWrapper extends GenericProcess
@@ -124,14 +115,16 @@ public class ProcessDratWrapper extends GenericProcess
 
   @Override
   public void crawl() throws Exception {
+    LOG.info("Starting crawling");
     simpleDratExec(CRAWL_CMD, this.path);
+    LOG.info("Crawling finished");
   }
 
   @Override
   public void index() throws IOException, DratWrapperException, InstantiationException, SolrServerException {
       solrIndex();
   }
-  
+
   private synchronized void solrIndex() throws InstantiationException, SolrServerException, IOException {
       setStatus(INDEX_CMD);
       DratLog idl = new DratLog("INDEXING");
@@ -143,7 +136,7 @@ public class ProcessDratWrapper extends GenericProcess
       sIndexer.commit();
       sIndexer.optimize();
       idl.logInfo("Completed",null);
-      
+
   }
 
   @Override
@@ -163,11 +156,13 @@ public class ProcessDratWrapper extends GenericProcess
     }else {
         mapLog.logSevere("FAILED", "Dynamic workflow starting failed "+resp);
     }   
+
   }
   
 
   @Override
   public void reduce() throws IOException, DratWrapperException {
+
 //    simpleDratExec(REDUCE_CMD);
     
     
@@ -243,7 +238,6 @@ public class ProcessDratWrapper extends GenericProcess
 
   public void go() throws Exception {
     // before go, always reset
-    
     this.reset();
     this.crawl();
     this.index();
@@ -293,6 +287,7 @@ public class ProcessDratWrapper extends GenericProcess
     String all[] = (String[]) ArrayUtils.addAll(args, options);
     String cmd = Joiner.on(" ").join(all);
 
+    LOG.fine(String.format("Running command [%s]", cmd));
     String output = null;
     try {
       output = execToString(cmd);
@@ -487,23 +482,21 @@ public class ProcessDratWrapper extends GenericProcess
   }
 
   private synchronized void wipeInstanceRepo(String wmUrl) {
-    XmlRpcWorkflowManagerClient wm;
-    try {
-      wm = new XmlRpcWorkflowManagerClient(new URL(wmUrl));
-      wm.clearWorkflowInstances();
+    try (WorkflowManagerClient wm = RpcCommunicationFactory.createClient(new URL(wmUrl))) {
+      wm.refreshRepository();
     } catch (Exception e) {
       e.printStackTrace();
       LOG.warning("DRAT: reset: error communicating with the WM. Message: "
-          + e.getLocalizedMessage());
+              + e.getLocalizedMessage());
     }
   }
 
   private synchronized void wipeSolrCore(String coreName) {
     String baseUrl = "http://localhost:8080/solr";
     String finalUrl = baseUrl + "/" + coreName;
-    CommonsHttpSolrServer server = null;
+    SolrServer server = null;
     try {
-      server = new CommonsHttpSolrServer(finalUrl);
+      server = new HttpSolrServer(finalUrl);
       server.deleteByQuery("*:*");
       server.commit();
     } catch (Exception e) {
@@ -512,9 +505,9 @@ public class ProcessDratWrapper extends GenericProcess
           + e.getLocalizedMessage());
     }
   }
-  
+
   private class DratLog{
-      private static final String MODULE = "DRAT_LOG"; 
+      private static final String MODULE = "DRAT_LOG";
       long startTime =0;
       private long lastActionTime=-1L;
       private long timeDiff  =-1L;
@@ -522,29 +515,29 @@ public class ProcessDratWrapper extends GenericProcess
       private String action;
       public DratLog(String action) {
           this.action = action;
-          
+
       }
-      
+
       private void logWarning(String status,String desc) {
           LOG.warning(getMsg(status,desc));
       }
-      
+
       private void logWarning(String desc) {
           LOG.warning(MODULE+" : "+desc);
       }
-      
+
       private void logInfo(String status,String desc) {
           LOG.info(getMsg(status,desc));
       }
-      
+
       private void logInfo(String desc) {
           LOG.info(MODULE+" : "+desc);
       }
-      
+
       private void logSevere(String status,String desc) {
           LOG.fine(getMsg(status,desc));
       }
-      
+
       private String getMsg(String status,String desc) {
           String basic = "";
           if(startTime==0) {
@@ -559,15 +552,15 @@ public class ProcessDratWrapper extends GenericProcess
               basic =  String.format("%1$s : %2$s : %3$s, at time %4$s with duration %5$s", MODULE,action,status,
                       zdt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),DurationFormatUtils.formatDuration(timeDiff,"MM-dd T HH-mm-ss"));
           }
-          
+
           if(desc==null) {
               return basic;
           }else {
               return String.format("%1$s : %2$s", basic,desc);
           }
       }
-      
-      
+
+
   }
 
 }
