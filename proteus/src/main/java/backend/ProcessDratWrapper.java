@@ -17,22 +17,24 @@
 
 package backend;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.exec.PumpStreamHandler;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.ArrayUtils;
-import org.apache.solr.client.solrj.impl.CommonsHttpSolrServer;
 import org.apache.oodt.cas.filemgr.structs.Product;
 import org.apache.oodt.cas.filemgr.structs.ProductPage;
 import org.apache.oodt.cas.filemgr.structs.ProductType;
 import org.apache.oodt.cas.filemgr.tools.DeleteProduct;
 import org.apache.oodt.cas.metadata.util.PathUtils;
-import org.apache.oodt.cas.workflow.system.XmlRpcWorkflowManagerClient;
+import org.apache.oodt.cas.workflow.system.WorkflowManagerClient;
+import org.apache.oodt.cas.workflow.system.rpc.RpcCommunicationFactory;
 import org.apache.oodt.pcs.util.FileManagerUtils;
+import org.apache.solr.client.solrj.SolrServer;
+import org.apache.solr.client.solrj.impl.HttpSolrServer;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -42,7 +44,6 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.logging.Logger;
 
 public class ProcessDratWrapper extends GenericProcess
@@ -100,22 +101,30 @@ public class ProcessDratWrapper extends GenericProcess
 
   @Override
   public void crawl() throws Exception {
+    LOG.info("Starting crawling");
     simpleDratExec(CRAWL_CMD, this.path);
+    LOG.info("Crawling finished");
   }
 
   @Override
   public void index() throws IOException, DratWrapperException {
+    LOG.info("Starting indexing");
     simpleDratExec(INDEX_CMD, this.path);
+    LOG.info("Indexing finished");
   }
 
   @Override
   public void map() throws IOException, DratWrapperException {
+    LOG.info("Running map");
     simpleDratExec(MAP_CMD);
+    LOG.info("Finished map");
   }
 
   @Override
   public void reduce() throws IOException, DratWrapperException {
+    LOG.info("Running reduce");
     simpleDratExec(REDUCE_CMD);
+    LOG.info("Finished reduce");
   }
 
   @Override
@@ -204,6 +213,7 @@ public class ProcessDratWrapper extends GenericProcess
     String all[] = (String[]) ArrayUtils.addAll(args, options);
     String cmd = Joiner.on(" ").join(all);
 
+    LOG.fine(String.format("Running command [%s]", cmd));
     String output = null;
     try {
       output = execToString(cmd);
@@ -397,10 +407,10 @@ public class ProcessDratWrapper extends GenericProcess
   }
 
   private synchronized void wipeInstanceRepo(String wmUrl) {
-    XmlRpcWorkflowManagerClient wm;
+    WorkflowManagerClient wm;
     try {
-      wm = new XmlRpcWorkflowManagerClient(new URL(wmUrl));
-      wm.clearWorkflowInstances();
+      wm = RpcCommunicationFactory.createClient(new URL(wmUrl));
+      wm.refreshRepository();
     } catch (Exception e) {
       e.printStackTrace();
       LOG.warning("DRAT: reset: error communicating with the WM. Message: "
@@ -411,9 +421,9 @@ public class ProcessDratWrapper extends GenericProcess
   private synchronized void wipeSolrCore(String coreName) {
     String baseUrl = "http://localhost:8080/solr";
     String finalUrl = baseUrl + "/" + coreName;
-    CommonsHttpSolrServer server = null;
+    SolrServer server = null;
     try {
-      server = new CommonsHttpSolrServer(finalUrl);
+      server = new HttpSolrServer(finalUrl);
       server.deleteByQuery("*:*");
       server.commit();
     } catch (Exception e) {
