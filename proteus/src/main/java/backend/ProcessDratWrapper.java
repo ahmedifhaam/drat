@@ -25,14 +25,9 @@ import org.apache.commons.exec.PumpStreamHandler;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang.time.DurationFormatUtils;
-import org.apache.solr.client.solrj.SolrServerException;
-import org.apache.solr.client.solrj.impl.CommonsHttpSolrServer;
-import org.python.modules.synchronize;
-import org.apache.oodt.cas.crawl.CrawlerLauncher;
 import org.apache.oodt.cas.filemgr.structs.Product;
 import org.apache.oodt.cas.filemgr.structs.ProductPage;
 import org.apache.oodt.cas.filemgr.structs.ProductType;
-import org.apache.oodt.cas.filemgr.system.XmlRpcFileManagerClient;
 import org.apache.oodt.cas.filemgr.tools.DeleteProduct;
 import org.apache.oodt.cas.filemgr.tools.SolrIndexer;
 import org.apache.oodt.cas.metadata.util.PathUtils;
@@ -40,12 +35,12 @@ import org.apache.oodt.cas.workflow.system.WorkflowManagerClient;
 import org.apache.oodt.cas.workflow.system.rpc.RpcCommunicationFactory;
 import org.apache.oodt.pcs.util.FileManagerUtils;
 import org.apache.solr.client.solrj.SolrServer;
+import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrServer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.charset.Charset;
@@ -429,14 +424,12 @@ public class ProcessDratWrapper extends GenericProcess
   }
 
   private synchronized void wipeInstanceRepo(String wmUrl) {
-    WorkflowManagerClient wm;
-    try {
-      wm = RpcCommunicationFactory.createClient(new URL(wmUrl));
+    try (WorkflowManagerClient wm = RpcCommunicationFactory.createClient(new URL(wmUrl))) {
       wm.refreshRepository();
     } catch (Exception e) {
       e.printStackTrace();
       LOG.warning("DRAT: reset: error communicating with the WM. Message: "
-          + e.getLocalizedMessage());
+              + e.getLocalizedMessage());
     }
   }
 
