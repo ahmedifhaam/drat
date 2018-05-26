@@ -164,8 +164,6 @@ public class ProcessDratWrapper extends GenericProcess
   public void reduce() throws IOException, DratWrapperException {
 
 //    simpleDratExec(REDUCE_CMD);
-    
-    
     setStatus(REDUCE_CMD);
     DratLog mapLog = new DratLog("REDUCING");
     WorkflowRestResource restResource = new WorkflowRestResource();
